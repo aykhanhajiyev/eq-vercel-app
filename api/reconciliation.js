@@ -1,9 +1,17 @@
 const connectDB = require('./_db');
 const { ElektronQaime, BankHesab } = require('./_models');
+const XLSX = require('xlsx');
 
 const EPS = 0.01;
 const PRINCIPAL_TYPE = 'Yayım haqqı yığımı';
 const VAT_TYPE = 'Digər daxilolmalar (ƏDV)';
+
+const STATUS_AZ = {
+  UNPAID: 'ÖDƏNİLMƏYİB',
+  PARTIAL: 'QİSMƏN ÖDƏNİLİB',
+  PAID: 'TAM ÖDƏNİLİB',
+  OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
+};
 
 const safeNum = v => (typeof v === 'number' && isFinite(v) ? v : 0);
 
@@ -15,8 +23,8 @@ const sortKey = s => {
 const cmpDate = (a, b) => sortKey(a).localeCompare(sortKey(b));
 const hasDate = s => !!String(s || '').trim();
 
-// FIFO allocation: drains bankTxs into items, tracking owed/paid/date per component.
-// owedKey is mutated (remaining owed), paidKey accumulates, dateKey is set on full pay.
+// FIFO allocation: drains bankTxs into items independently per component.
+// owedKey decrements, paidKey accumulates, dateKey is set only on full pay.
 function fifoAllocate(items, bankTxs, owedKey, paidKey, dateKey) {
   let idx = 0;
   for (const tx of bankTxs) {
@@ -37,17 +45,7 @@ function fifoAllocate(items, bankTxs, owedKey, paidKey, dateKey) {
   }
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  if (req.method !== 'GET') return res.status(405).end();
-
-  await connectDB();
-
-  const [eqData, bankData] = await Promise.all([
-    ElektronQaime.find({}).lean(),
-    BankHesab.find({}).lean(),
-  ]);
-
+function buildReconciliation(eqData, bankData) {
   // Group invoices by icazeNo
   const groups = {};
   eqData.forEach(eq => {
@@ -97,6 +95,8 @@ module.exports = async (req, res) => {
         voen: eq.voen || '',
         reklamYayicisi: eq.reklamYayicisi || '',
         qeyd: eq.qeyd || '',
+        eqMeblegEsas: principalOrig,
+        eqMeblegEdv: vatOrig,
         principalOrig,
         vatOrig,
         principalOwed: principalOrig,
@@ -118,7 +118,7 @@ module.exports = async (req, res) => {
       .sort((a, b) => cmpDate(a.tarix, b.tarix))
       .map(b => ({ tarix: b.tarix || '', remaining: safeNum(b.medaxil) }));
 
-    // Independent FIFO flows — principal and VAT do not mix
+    // Independent FIFO flows — principal and VAT never cross
     fifoAllocate(items, pBanks, 'principalOwed', 'principalPaid', 'principalDate');
     fifoAllocate(items, vBanks, 'vatOwed', 'vatPaid', 'vatDate');
 
@@ -140,6 +140,8 @@ module.exports = async (req, res) => {
         voen: item.voen,
         reklamYayicisi: item.reklamYayicisi,
         qeyd: item.qeyd,
+        eqMeblegEsas: item.eqMeblegEsas,
+        eqMeblegEdv: item.eqMeblegEdv,
         originalAmount,
         paidAmount,
         remainingAmount,
@@ -169,6 +171,8 @@ module.exports = async (req, res) => {
         voen,
         reklamYayicisi,
         qeyd: '',
+        eqMeblegEsas: 0,
+        eqMeblegEdv: 0,
         originalAmount: 0,
         paidAmount: 0,
         remainingAmount: princOverpay,
@@ -195,6 +199,8 @@ module.exports = async (req, res) => {
         voen,
         reklamYayicisi,
         qeyd: '',
+        eqMeblegEsas: 0,
+        eqMeblegEdv: 0,
         originalAmount: 0,
         paidAmount: 0,
         remainingAmount: vatOverpay,
@@ -222,6 +228,65 @@ module.exports = async (req, res) => {
       overpayment: overpayment > EPS ? overpayment : 0,
     });
   });
+
+  return { rows, summary };
+}
+
+function buildExcel(rows, summary) {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Uzlaşma — exact 12 Azerbaijani headers + Status
+  const uzlasmaRows = rows.map(r => ({
+    'Reklam yayıcısının adı': r.reklamYayicisi,
+    'VÖEN': r.voen,
+    'İcazə': r.icazeNo,
+    'Elektron qaimənin tarixi': r.eqTarixi,
+    'Elektron qaimənin nömrəsi': r.eqNomresi,
+    'EQ məbləği(əsas)': r.eqMeblegEsas,
+    'EQ məbləği(ƏDV)': r.eqMeblegEdv,
+    'Ödəniş tarixi': r.odenisTarixi,
+    'Ödəniş məbləği(Əsas)': r.odenisMeblegEsas,
+    'Ödəniş tarixi(ƏDV)': r.odenisTarixiEdv,
+    'Ödəniş məbləği(ƏDV)': r.odenisMeblegEdv,
+    'Qeyd': r.qeyd,
+    'Status': STATUS_AZ[r.status] || r.status,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(uzlasmaRows), 'Uzlaşma');
+
+  // Sheet 2: Xülasə — summary per icazeNo
+  const xulaseRows = summary.map(s => ({
+    'İcazə': s.icazeNo,
+    'VÖEN': s.voen,
+    'Reklam yayıcısının adı': s.reklamYayicisi,
+    'Ümumi EQ məbləği': s.totalInvoiceAmount,
+    'Ödənilmiş məbləğ': s.totalPaid,
+    'Qalıq məbləğ': s.remainingBalance,
+    'Artıq ödəniş': s.overpayment,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(xulaseRows), 'Xülasə');
+
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.method !== 'GET') return res.status(405).end();
+
+  await connectDB();
+
+  const [eqData, bankData] = await Promise.all([
+    ElektronQaime.find({}).lean(),
+    BankHesab.find({}).lean(),
+  ]);
+
+  const { rows, summary } = buildReconciliation(eqData, bankData);
+
+  if (req.query && req.query.format === 'xlsx') {
+    const buf = buildExcel(rows, summary);
+    res.setHeader('Content-Disposition', 'attachment; filename=uzlasma.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buf);
+  }
 
   res.json({ rows, summary });
 };
