@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
 
 const HEADERS = [
-  'Invoice ID', 'İCAZƏ', 'EQ №', 'EQ Tarixi', 'Reklam Yayıcısı', 'VÖEN',
-  'Original Amount', 'Paid Amount', 'Remaining Amount',
-  'Payment Status', 'Payment Date',
+  'Reklam yayıcısının adı',
+  'VÖEN',
+  'İcazə',
+  'Elektron qaimənin tarixi',
+  'Elektron qaimənin nömrəsi',
+  'EQ məbləği(əsas)',
+  'EQ məbləği(ƏDV)',
+  'Ödəniş tarixi',
+  'Ödəniş məbləği(Əsas)',
+  'Ödəniş tarixi(ƏDV)',
+  'Ödəniş məbləği(ƏDV)',
+  'Qeyd',
 ];
 
-const COL_WIDTHS = [26, 18, 22, 14, 30, 15, 16, 16, 18, 16, 14];
-
-const SUMMARY_HEADERS = [
-  'İCAZƏ', 'Reklam Yayıcısı', 'VÖEN',
-  'Total Invoice Amount', 'Total Paid', 'Remaining Balance', 'Overpayment',
-];
-const SUMMARY_WIDTHS = [18, 30, 15, 22, 16, 20, 16];
+const COL_WIDTHS = [38, 16, 16, 18, 24, 16, 16, 14, 16, 14, 16, 18];
 
 const STATUS_COLOR = {
-  PAID:        'FFD9EAD3',
-  PARTIAL:     'FFFFF2CC',
-  UNPAID:      'FFF4CCCC',
-  OVERPAYMENT: 'FFFCE5CD',
+  'TAM ÖDƏNİLİB': 'FFD9EAD3',
+  'QİSMƏN ÖDƏNİLİB': 'FFFFF2CC',
+  'ÖDƏNİLMƏYİB': 'FFF4CCCC',
+  'ARTIQ ÖDƏNİŞ': 'FFFCE5CD',
 };
 
 export default function Reconciliation({ api }) {
@@ -31,7 +34,9 @@ export default function Reconciliation({ api }) {
         import('exceljs'),
         fetch(`${api}/api/reconciliation`),
       ]);
-      const { rows, summary } = await res.json();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
 
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('Allocation');
@@ -48,45 +53,24 @@ export default function Reconciliation({ api }) {
 
       rows.forEach(row => {
         const r = ws.addRow([
-          row.invoiceId,
-          row.icazeNo,
-          row.eqNomresi,
-          row.eqTarixi,
           row.reklamYayicisi,
           row.voen,
-          row.originalAmount || '',
-          row.paidAmount || '',
-          row.remainingAmount || '',
-          row.status,
-          row.paymentDate,
+          row.icazeNo,
+          row.eqTarixi,
+          row.eqNomresi,
+          row.eqMeblegEsas || '',
+          row.eqMeblegEdv || '',
+          row.odenisTarixi || '',
+          row.odenisMeblegEsas || '',
+          row.odenisTarixiEdv || '',
+          row.odenisMeblegEdv || '',
+          row.qeyd || '',
         ]);
         const color = STATUS_COLOR[row.status];
         if (color) {
           r.eachCell(cell => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
-            if (row.status === 'OVERPAYMENT') cell.font = { italic: true, bold: true, size: 10 };
-          });
-        }
-      });
-
-      // Summary sheet
-      const sws = wb.addWorksheet('Summary');
-      const sHeaderRow = sws.addRow(SUMMARY_HEADERS);
-      sHeaderRow.height = 32;
-      sHeaderRow.eachCell(cell => {
-        cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
-        cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF203864' } };
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-      });
-      sws.columns.forEach((col, i) => { col.width = SUMMARY_WIDTHS[i] || 14; });
-      summary.forEach(s => {
-        const r = sws.addRow([
-          s.icazeNo, s.reklamYayicisi, s.voen,
-          s.totalInvoiceAmount, s.totalPaid, s.remainingBalance, s.overpayment,
-        ]);
-        if (s.overpayment > 0) {
-          r.eachCell(cell => {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE5CD' } };
+            if (row.status === 'ARTIQ ÖDƏNİŞ') cell.font = { italic: true, bold: true, size: 10 };
           });
         }
       });
@@ -115,7 +99,7 @@ export default function Reconciliation({ api }) {
         <div className="es-icon">📊</div>
         <p>Bank medaxilləri <b>Müraciət № / EQF №</b> ilə İCAZƏ üzrə qaimələrə FIFO allokasiya olunur.</p>
         <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>
-          🟢 PAID &nbsp;·&nbsp; 🟡 PARTIAL &nbsp;·&nbsp; 🔴 UNPAID &nbsp;·&nbsp; 🟠 OVERPAYMENT
+          🟢 TAM ÖDƏNİLİB &nbsp;·&nbsp; 🟡 QİSMƏN ÖDƏNİLİB &nbsp;·&nbsp; 🔴 ÖDƏNİLMƏYİB &nbsp;·&nbsp; 🟠 ARTIQ ÖDƏNİŞ
         </p>
       </div>
     </div>
