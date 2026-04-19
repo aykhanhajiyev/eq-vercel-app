@@ -8,9 +8,9 @@ const FIELDS = [
   { key: 'eqNomresi', label: 'EQ Nömrəsi', type: 'text' },
   { key: 'eqMeblegEsas', label: 'EQ Məbləği (Əsas)', type: 'number' },
   { key: 'eqMeblegEdv', label: 'EQ Məbləği (ƏDV)', type: 'number' },
-  { key: 'odenisTarixi', label: 'Ödəniş Tarixi', type: 'date' },
+  { key: 'odenisTarixi', label: 'Ödəniş Tarixi', type: 'text', placeholder: 'dd.mm.yyyy' },
   { key: 'odenisMeblegEsas', label: 'Ödəniş Məbləği (Əsas)', type: 'number' },
-  { key: 'odenisTarixiEdv', label: 'Ödəniş Tarixi (ƏDV)', type: 'date' },
+  { key: 'odenisTarixiEdv', label: 'Ödəniş Tarixi (ƏDV)', type: 'text', placeholder: 'dd.mm.yyyy' },
   { key: 'odenisMeblegEdv', label: 'Ödəniş Məbləği (ƏDV)', type: 'number' },
   { key: 'qeyd', label: 'Qeyd', type: 'textarea', full: true },
 ];
@@ -54,17 +54,6 @@ const showDate = v => {
   return parseDate(s);
 };
 
-const toInputDate = v => {
-  if (!v && v !== 0) return '';
-  const s = String(v).trim();
-  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return '';
-};
-
 export default function EQModule({ api, onUpdate }) {
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
@@ -96,15 +85,7 @@ export default function EQModule({ api, onUpdate }) {
   useEffect(() => { load(1, search); }, [search]);
 
   const openAdd = () => { setEditing(null); setForm(empty()); setModal(true); };
-  const openEdit = (row) => {
-    setEditing(row._id);
-    setForm({
-      ...row,
-      odenisTarixi: toInputDate(row.odenisTarixi),
-      odenisTarixiEdv: toInputDate(row.odenisTarixiEdv),
-    });
-    setModal(true);
-  };
+  const openEdit = (row) => { setEditing(row._id); setForm({ ...row }); setModal(true); };
 
   const save = async () => {
     try {
