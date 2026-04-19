@@ -11,6 +11,7 @@ const STATUS = {
   PARTIAL: 'QİSMƏN ÖDƏNİLİB',
   PAID: 'TAM ÖDƏNİLİB',
   OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
+  DEBT: 'BORC',
 };
 
 function safeNum(v) {
@@ -235,6 +236,8 @@ function buildRows(eqData, bankData) {
         status,
         _rowColor: rowColor,
         _changed: principalChanged || vatChanged,
+        _remainingPrincipal: trunc2(w._principalOwed),
+        _remainingVat: trunc2(w._vatOwed),
       });
     }
 
@@ -244,7 +247,27 @@ function buildRows(eqData, bankData) {
       if (hasDate(eq.odenisTarixi)) {
         if (frozenRowsById.has(id)) merged.push(frozenRowsById.get(id));
       } else if (updatedRowsById.has(id)) {
-        merged.push(updatedRowsById.get(id));
+        const updated = updatedRowsById.get(id);
+        merged.push(updated);
+        if (updated.status === STATUS.PARTIAL && (updated._remainingPrincipal > EPS || updated._remainingVat > EPS)) {
+          merged.push({
+            reklamYayicisi: '',
+            voen: '',
+            icazeNo: '',
+            eqTarixi: '',
+            eqNomresi: '',
+            eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
+            eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
+            odenisTarixi: '',
+            odenisMeblegEsas: 0,
+            odenisTarixiEdv: '',
+            odenisMeblegEdv: 0,
+            qeyd: 'Qalıq borc',
+            status: STATUS.DEBT,
+            _rowColor: 'RED',
+            _changed: true,
+          });
+        }
       }
     }
     rows.push(...merged);
@@ -293,7 +316,7 @@ async function buildExcel(rows, onlyUnpaid) {
   const ws = wb.addWorksheet('Uzlaşma');
   const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
   const exportRows = onlyUnpaid
-    ? rows.filter(r => r._changed && hasAnyDate(r))
+    ? rows.filter(r => r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT))
     : rows;
 
   const headers = [
@@ -352,6 +375,10 @@ async function buildExcel(rows, onlyUnpaid) {
     } else if (r._rowColor === 'YELLOW') {
       row.eachCell(cell => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+      });
+    } else if (r._rowColor === 'RED') {
+      row.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8CBAD' } };
       });
     }
   }
