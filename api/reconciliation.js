@@ -142,6 +142,7 @@ function toBaseRow(eq) {
     _vatOwed: vatOwed,
     status: buildStatus(principalOwed, vatOwed, odEsas, odEdv),
     _rowColor: '',
+    _changed: false,
   };
 }
 
@@ -233,6 +234,7 @@ function buildRows(eqData, bankData) {
         qeyd: w.qeyd,
         status,
         _rowColor: rowColor,
+        _changed: principalChanged || vatChanged,
       });
     }
 
@@ -278,6 +280,7 @@ function buildRows(eqData, bankData) {
         qeyd: uniqNote,
         status: STATUS.OVERPAYMENT,
         _rowColor: 'YELLOW',
+        _changed: true,
       });
     }
   }
@@ -288,8 +291,9 @@ function buildRows(eqData, bankData) {
 async function buildExcel(rows, onlyUnpaid) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Uzlaşma');
+  const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
   const exportRows = onlyUnpaid
-    ? rows.filter(r => !String(r.odenisTarixi || '').trim() && r.status !== STATUS.OVERPAYMENT)
+    ? rows.filter(r => r._changed && hasAnyDate(r))
     : rows;
 
   const headers = [
@@ -382,7 +386,7 @@ module.exports = async (req, res) => {
   const rows = buildRows(eqData, bankData);
 
   if (req.query && req.query.format === 'xlsx') {
-    const scope = String(req.query.scope || 'unpaid').toLowerCase();
+    const scope = String(req.query.scope || 'changed').toLowerCase();
     const onlyUnpaid = scope !== 'all';
     const buf = await buildExcel(rows, onlyUnpaid);
     res.setHeader('Content-Disposition', 'attachment; filename=uzlasma.xlsx');

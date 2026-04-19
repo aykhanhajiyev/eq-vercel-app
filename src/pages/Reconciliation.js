@@ -22,8 +22,8 @@ export default function Reconciliation({ api }) {
       <div className="module-header">
         <div className="module-title"><span>03</span> — Rekonsiliasiya · Allokasiya</div>
         <div className="toolbar">
-          <button className="btn btn-secondary" onClick={() => exportExcel('unpaid')} disabled={loading}>
-            {loading ? 'Hazırlanır...' : '⬇ Yalnız Boş Tarix'}
+          <button className="btn btn-secondary" onClick={() => exportExcel('changed')} disabled={loading}>
+            {loading ? 'Hazırlanır...' : '⬇ Yalnız Dəyişənlər'}
           </button>
           <button className="btn btn-primary" onClick={() => exportExcel('all')} disabled={loading}>
             {loading ? 'Hazırlanır...' : '⬇ Hamısını Export Et'}
