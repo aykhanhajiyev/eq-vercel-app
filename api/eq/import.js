@@ -25,8 +25,14 @@ module.exports = async (req, res) => {
   try {
     const docs = await parseBody(req);
     if (!Array.isArray(docs)) return res.status(400).json({ error: 'Array gözlənilir' });
-    await ElektronQaime.insertMany(docs);
-    return res.json({ imported: docs.length });
+    try {
+      const inserted = await ElektronQaime.insertMany(docs, { ordered: false });
+      return res.json({ imported: inserted.length, failed: 0, total: docs.length });
+    } catch (err) {
+      const imported = Array.isArray(err.insertedDocs) ? err.insertedDocs.length : 0;
+      const failed = Math.max(0, docs.length - imported);
+      return res.status(200).json({ imported, failed, total: docs.length, error: err.message });
+    }
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

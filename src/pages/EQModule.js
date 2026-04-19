@@ -141,18 +141,24 @@ export default function EQModule({ api, onUpdate }) {
       }
       const CHUNK = 500;
       let imported = 0;
+      let failed = 0;
       for (let i = 0; i < docs.length; i += CHUNK) {
         const r = await fetch(`${api}/api/eq/import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(docs.slice(i, i + CHUNK)),
         });
+        if (!r.ok) {
+          const txt = await r.text();
+          throw new Error(`Import HTTP ${r.status}: ${txt}`);
+        }
         const d = await r.json();
         imported += d.imported || 0;
+        failed += d.failed || 0;
       }
       setImportModal(false); load(1, ''); onUpdate();
-      showToast(`${imported} qeyd import edildi`);
-    } catch { showToast('Import xətası', true); }
+      showToast(`Excel: ${docs.length} | Import: ${imported} | Uğursuz: ${failed}`);
+    } catch (e) { showToast(`Import xətası: ${e.message}`, true); }
     setLoading(false);
   };
 

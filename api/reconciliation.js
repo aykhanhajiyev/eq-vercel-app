@@ -1,6 +1,6 @@
 const connectDB = require('./_db');
 const { ElektronQaime, BankHesab } = require('./_models');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 const EPS = 0.01;
 const PRINCIPAL_TYPE = 'Yayım haqqı yığımı';
@@ -141,6 +141,7 @@ function toBaseRow(eq) {
     _principalOwed: principalOwed,
     _vatOwed: vatOwed,
     status: buildStatus(principalOwed, vatOwed, odEsas, odEdv),
+    _rowColor: '',
   };
 }
 
@@ -148,7 +149,10 @@ function buildRows(eqData, bankData) {
   const groups = new Map();
 
   for (const eq of eqData) {
-    const key = (eq.icazeNo || '').trim() || `__no_icaze__${eq._id}`;
+    const icaze = (eq.icazeNo || '').trim();
+    const key = icaze === 'Avans'
+      ? `__avans__${eq._id}` // Avans rows are never merged/reconciled
+      : (icaze || `__no_icaze__${eq._id}`);
     if (!groups.has(key)) {
       groups.set(key, { eqs: [], principalTx: [], vatTx: [] });
     }
@@ -171,6 +175,7 @@ function buildRows(eqData, bankData) {
 
   for (const key of keys) {
     const g = groups.get(key);
+    const isAvansGroup = key.startsWith('__avans__');
     const originalEqs = g.eqs.slice();
     const sortedEqs = originalEqs.slice().sort((a, b) => cmpDate(a.eqTarixi, b.eqTarixi));
 
@@ -199,13 +204,20 @@ function buildRows(eqData, bankData) {
     const pTx = g.principalTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
     const vTx = g.vatTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
 
-    allocateFifo(work, pTx, '_principalOwed', '_principalPaid', '_principalDateRaw');
-    allocateFifo(work, vTx, '_vatOwed', '_vatPaid', '_vatDateRaw');
+    if (!isAvansGroup) {
+      allocateFifo(work, pTx, '_principalOwed', '_principalPaid', '_principalDateRaw');
+      allocateFifo(work, vTx, '_vatOwed', '_vatPaid', '_vatDateRaw');
+    }
 
     const updatedRowsById = new Map();
     for (let i = 0; i < work.length; i++) {
       const w = work[i];
       const eq = updatable[i];
+      const base = toBaseRow(eq);
+      const principalChanged = trunc2(w._principalPaid - base.odenisMeblegEsas) > EPS;
+      const vatChanged = trunc2(w._vatPaid - base.odenisMeblegEdv) > EPS;
+      const status = buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid);
+      const rowColor = status === STATUS.PAID && (principalChanged || vatChanged) ? 'GREEN' : '';
       updatedRowsById.set(String(eq._id), {
         reklamYayicisi: w.reklamYayicisi,
         voen: w.voen,
@@ -219,7 +231,8 @@ function buildRows(eqData, bankData) {
         odenisTarixiEdv: displayDate(w._vatDateRaw),
         odenisMeblegEdv: trunc2(w._vatPaid),
         qeyd: w.qeyd,
-        status: buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid),
+        status,
+        _rowColor: rowColor,
       });
     }
 
@@ -234,8 +247,8 @@ function buildRows(eqData, bankData) {
     }
     rows.push(...merged);
 
-    const pLeft = pTx.filter(x => x.remaining > EPS);
-    const vLeft = vTx.filter(x => x.remaining > EPS);
+    const pLeft = isAvansGroup ? [] : pTx.filter(x => x.remaining > EPS);
+    const vLeft = isAvansGroup ? [] : vTx.filter(x => x.remaining > EPS);
 
     const principalOver = trunc2(pLeft.reduce((s, x) => s + x.remaining, 0));
     const vatOver = trunc2(vLeft.reduce((s, x) => s + x.remaining, 0));
@@ -253,7 +266,7 @@ function buildRows(eqData, bankData) {
       rows.push({
         reklamYayicisi: '',
         voen: '',
-        icazeNo: key,
+        icazeNo: key.startsWith('__no_icaze__') ? '' : key,
         eqTarixi: '',
         eqNomresi: '',
         eqMeblegEsas: 0,
@@ -264,6 +277,7 @@ function buildRows(eqData, bankData) {
         odenisMeblegEdv: vatOver,
         qeyd: uniqNote,
         status: STATUS.OVERPAYMENT,
+        _rowColor: 'YELLOW',
       });
     }
   }
@@ -271,27 +285,81 @@ function buildRows(eqData, bankData) {
   return rows;
 }
 
-function buildExcel(rows) {
-  const wb = XLSX.utils.book_new();
-  const sheetRows = rows.map(r => ({
-    'Reklam yayıcısının adı': r.reklamYayicisi,
-    'VÖEN': r.voen,
-    'İcazə': r.icazeNo,
-    'Elektron qaimənin tarixi': r.eqTarixi,
-    'Elektron qaimənin nömrəsi': r.eqNomresi,
-    'EQ məbləği(əsas)': fmt2(r.eqMeblegEsas),
-    'EQ məbləği(ƏDV)': fmt2(r.eqMeblegEdv),
-    'Ödəniş tarixi': r.odenisTarixi,
-    'Ödəniş məbləği(Əsas)': fmt2(r.odenisMeblegEsas),
-    'Ödəniş tarixi(ƏDV)': r.odenisTarixiEdv,
-    'Ödəniş məbləği(ƏDV)': fmt2(r.odenisMeblegEdv),
-    'Qeyd': r.qeyd,
-    'Status': r.status,
-  }));
+async function buildExcel(rows) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Uzlaşma');
 
-  const ws = XLSX.utils.json_to_sheet(sheetRows);
-  XLSX.utils.book_append_sheet(wb, ws, 'Uzlaşma');
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const headers = [
+    'Reklam yayıcısının adı',
+    'VÖEN',
+    'İcazə',
+    'Elektron qaimənin tarixi',
+    'Elektron qaimənin nömrəsi',
+    'EQ məbləği(əsas)',
+    'EQ məbləği(ƏDV)',
+    'Ödəniş tarixi',
+    'Ödəniş məbləği(Əsas)',
+    'Ödəniş tarixi(ƏDV)',
+    'Ödəniş məbləği(ƏDV)',
+    'Qeyd',
+    'Status',
+  ];
+
+  ws.addRow(headers);
+  ws.columns = [
+    { width: 40 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 26 },
+    { width: 16 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 18 },
+    { width: 18 }, { width: 20 }, { width: 18 },
+  ];
+
+  const headerRow = ws.getRow(1);
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, name: 'Arial', size: 10 };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+  });
+
+  for (const r of rows) {
+    const row = ws.addRow([
+      r.reklamYayicisi,
+      r.voen,
+      r.icazeNo,
+      r.eqTarixi,
+      r.eqNomresi,
+      fmt2(r.eqMeblegEsas),
+      fmt2(r.eqMeblegEdv),
+      r.odenisTarixi,
+      fmt2(r.odenisMeblegEsas),
+      r.odenisTarixiEdv,
+      fmt2(r.odenisMeblegEdv),
+      r.qeyd,
+      r.status,
+    ]);
+    if (r._rowColor === 'GREEN') {
+      row.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6EFCE' } };
+      });
+    } else if (r._rowColor === 'YELLOW') {
+      row.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+      });
+    }
+  }
+
+  ws.eachRow(row => {
+    row.eachCell(cell => {
+      cell.font = { ...(cell.font || {}), name: 'Arial', size: 10 };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } },
+      };
+    });
+  });
+
+  return wb.xlsx.writeBuffer();
 }
 
 module.exports = async (req, res) => {
@@ -308,7 +376,7 @@ module.exports = async (req, res) => {
   const rows = buildRows(eqData, bankData);
 
   if (req.query && req.query.format === 'xlsx') {
-    const buf = buildExcel(rows);
+    const buf = await buildExcel(rows);
     res.setHeader('Content-Disposition', 'attachment; filename=uzlasma.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     return res.send(buf);
