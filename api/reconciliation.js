@@ -166,19 +166,20 @@ function buildRows(eqData, bankData) {
     if (t === VAT_TYPE) groups.get(ref).vatTx.push(tx);
   }
 
-  const keys = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b, 'az'));
+  const keys = Array.from(groups.keys());
   const rows = [];
 
   for (const key of keys) {
     const g = groups.get(key);
-    const sortedEqs = g.eqs.slice().sort((a, b) => cmpDate(a.eqTarixi, b.eqTarixi));
+    const originalEqs = g.eqs.slice();
+    const sortedEqs = originalEqs.slice().sort((a, b) => cmpDate(a.eqTarixi, b.eqTarixi));
 
-    const frozenRows = [];
+    const frozenRowsById = new Map();
     const updatable = [];
 
     for (const eq of sortedEqs) {
       if (hasDate(eq.odenisTarixi)) {
-        frozenRows.push(toBaseRow(eq));
+        frozenRowsById.set(String(eq._id), toBaseRow(eq));
       } else {
         updatable.push(eq);
       }
@@ -201,28 +202,35 @@ function buildRows(eqData, bankData) {
     allocateFifo(work, pTx, '_principalOwed', '_principalPaid', '_principalDateRaw');
     allocateFifo(work, vTx, '_vatOwed', '_vatPaid', '_vatDateRaw');
 
-    const updatedRows = work.map(w => ({
-      reklamYayicisi: w.reklamYayicisi,
-      voen: w.voen,
-      icazeNo: w.icazeNo,
-      eqTarixi: w.eqTarixi,
-      eqNomresi: w.eqNomresi,
-      eqMeblegEsas: trunc2(w.eqMeblegEsas),
-      eqMeblegEdv: trunc2(w.eqMeblegEdv),
-      odenisTarixi: displayDate(w._principalDateRaw),
-      odenisMeblegEsas: trunc2(w._principalPaid),
-      odenisTarixiEdv: displayDate(w._vatDateRaw),
-      odenisMeblegEdv: trunc2(w._vatPaid),
-      qeyd: w.qeyd,
-      status: buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid),
-    }));
+    const updatedRowsById = new Map();
+    for (let i = 0; i < work.length; i++) {
+      const w = work[i];
+      const eq = updatable[i];
+      updatedRowsById.set(String(eq._id), {
+        reklamYayicisi: w.reklamYayicisi,
+        voen: w.voen,
+        icazeNo: w.icazeNo,
+        eqTarixi: w.eqTarixi,
+        eqNomresi: w.eqNomresi,
+        eqMeblegEsas: trunc2(w.eqMeblegEsas),
+        eqMeblegEdv: trunc2(w.eqMeblegEdv),
+        odenisTarixi: displayDate(w._principalDateRaw),
+        odenisMeblegEsas: trunc2(w._principalPaid),
+        odenisTarixiEdv: displayDate(w._vatDateRaw),
+        odenisMeblegEdv: trunc2(w._vatPaid),
+        qeyd: w.qeyd,
+        status: buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid),
+      });
+    }
 
     const merged = [];
-    let iFrozen = 0;
-    let iUpdated = 0;
-    for (const eq of sortedEqs) {
-      if (hasDate(eq.odenisTarixi)) merged.push(frozenRows[iFrozen++]);
-      else merged.push(updatedRows[iUpdated++]);
+    for (const eq of originalEqs) {
+      const id = String(eq._id);
+      if (hasDate(eq.odenisTarixi)) {
+        if (frozenRowsById.has(id)) merged.push(frozenRowsById.get(id));
+      } else if (updatedRowsById.has(id)) {
+        merged.push(updatedRowsById.get(id));
+      }
     }
     rows.push(...merged);
 
@@ -278,6 +286,7 @@ function buildExcel(rows) {
     'Ödəniş tarixi(ƏDV)': r.odenisTarixiEdv,
     'Ödəniş məbləği(ƏDV)': fmt2(r.odenisMeblegEdv),
     'Qeyd': r.qeyd,
+    'Status': r.status,
   }));
 
   const ws = XLSX.utils.json_to_sheet(sheetRows);
@@ -292,7 +301,7 @@ module.exports = async (req, res) => {
   await connectDB();
 
   const [eqData, bankData] = await Promise.all([
-    ElektronQaime.find({}).lean(),
+    ElektronQaime.find({}).sort({ createdAt: 1, _id: 1 }).lean(),
     BankHesab.find({}).lean(),
   ]);
 
