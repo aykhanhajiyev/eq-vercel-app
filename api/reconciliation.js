@@ -12,6 +12,7 @@ const STATUS = {
   PAID: 'TAM ÖDƏNİLİB',
   OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
   DEBT: 'BORC',
+  NO_MATCH: 'UYĞUN EQ TAPILMADI',
 };
 
 function safeNum(v) {
@@ -31,6 +32,10 @@ function trunc2(n) {
 
 function fmt2(n) {
   return trunc2(n).toFixed(2);
+}
+
+function isAvansRef(v) {
+  return String(v || '').trim().toLocaleLowerCase('az') === 'avans';
 }
 
 function normDate(v) {
@@ -149,6 +154,7 @@ function toBaseRow(eq) {
 
 function buildRows(eqData, bankData) {
   const groups = new Map();
+  const unmatchedBankRows = [];
 
   for (const eq of eqData) {
     const icaze = (eq.icazeNo || '').trim();
@@ -162,10 +168,34 @@ function buildRows(eqData, bankData) {
   }
 
   for (const b of bankData) {
-    const medaxil = safeNum(b.medaxil);
-    if (!(medaxil > EPS)) continue;
     const ref = (b.muracietNomresiEqfNomresi || '').trim();
-    if (!ref || !groups.has(ref)) continue;
+    const medaxil = trunc2(safeNum(b.medaxil));
+    if (!ref || isAvansRef(ref)) continue;
+
+    if (!groups.has(ref)) {
+      const tRaw = (b.hesabatUzreTeyinat || '').trim();
+      unmatchedBankRows.push({
+        reklamYayicisi: b.odeyiciVesait || '',
+        voen: b.voen || '',
+        icazeNo: ref,
+        eqTarixi: '',
+        eqNomresi: '',
+        eqMeblegEsas: 0,
+        eqMeblegEdv: 0,
+        odenisTarixi: displayDate(b.tarix),
+        odenisMeblegEsas: tRaw === VAT_TYPE ? 0 : (medaxil > EPS ? medaxil : 0),
+        odenisTarixiEdv: displayDate(b.tarix),
+        odenisMeblegEdv: tRaw === VAT_TYPE ? (medaxil > EPS ? medaxil : 0) : 0,
+        qeyd: b.qeyd || '',
+        status: STATUS.NO_MATCH,
+        _rowColor: 'YELLOW',
+        _changed: true,
+        _matched: false,
+      });
+      continue;
+    }
+
+    if (!(medaxil > EPS)) continue;
     const t = (b.hesabatUzreTeyinat || '').trim();
     const tx = { tarix: b.tarix, remaining: trunc2(medaxil), qeyd: b.qeyd || '' };
     if (t === PRINCIPAL_TYPE) groups.get(ref).principalTx.push(tx);
@@ -263,7 +293,7 @@ function buildRows(eqData, bankData) {
             odenisMeblegEsas: 0,
             odenisTarixiEdv: '',
             odenisMeblegEdv: 0,
-            qeyd: 'Qalıq borc',
+            qeyd: updated.qeyd || '',
             status: STATUS.DEBT,
             _rowColor: 'RED',
             _changed: true,
@@ -284,11 +314,7 @@ function buildRows(eqData, bankData) {
       const lastP = pLeft.length ? pLeft[pLeft.length - 1] : null;
       const lastV = vLeft.length ? vLeft[vLeft.length - 1] : null;
 
-      const noteList = []
-        .concat(pLeft.map(x => (x.qeyd || '').trim()))
-        .concat(vLeft.map(x => (x.qeyd || '').trim()))
-        .filter(Boolean);
-      const uniqNote = Array.from(new Set(noteList)).join('; ');
+      const overpayQeyd = (lastP && lastP.qeyd) || (lastV && lastV.qeyd) || '';
 
       rows.push({
         reklamYayicisi: '',
@@ -302,7 +328,7 @@ function buildRows(eqData, bankData) {
         odenisMeblegEsas: principalOver,
         odenisTarixiEdv: displayDate(lastV ? lastV.tarix : ''),
         odenisMeblegEdv: vatOver,
-        qeyd: uniqNote,
+        qeyd: overpayQeyd,
         status: STATUS.OVERPAYMENT,
         _rowColor: 'YELLOW',
         _changed: true,
@@ -311,6 +337,7 @@ function buildRows(eqData, bankData) {
     }
   }
 
+  rows.push(...unmatchedBankRows);
   return rows;
 }
 
@@ -319,7 +346,10 @@ async function buildExcel(rows, onlyUnpaid) {
   const ws = wb.addWorksheet('Uzlaşma');
   const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
   const exportRows = onlyUnpaid
-    ? rows.filter(r => r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT))
+    ? rows.filter(r =>
+      (r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT)) ||
+      r.status === STATUS.NO_MATCH
+    )
     : rows;
 
   const headers = [
