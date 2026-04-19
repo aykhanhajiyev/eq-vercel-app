@@ -310,7 +310,7 @@ function buildRows(eqData, bankData) {
       const lastP = pLeft.length ? pLeft[pLeft.length - 1] : null;
       const lastV = vLeft.length ? vLeft[vLeft.length - 1] : null;
 
-      const overpayQeyd = (lastP && lastP.qeyd) || (lastV && lastV.qeyd) || '';
+      const overpayQeyd = (originalEqs.find(x => String(x.qeyd || '') !== '')?.qeyd) || '';
 
       rows.push({
         reklamYayicisi: '',
