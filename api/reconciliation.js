@@ -11,15 +11,8 @@ const STATUS = {
   PARTIAL: 'QİSMƏN ÖDƏNİLİB',
   PAID: 'TAM ÖDƏNİLİB',
   OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
-  NO_MATCH: 'UYĞUN EQ TAPILMADI',
+  DEBT: 'BORC',
 };
-
-function normalizePurpose(v) {
-  const s = String(v || '').trim().toLocaleLowerCase('az');
-  if (s.includes('yayım haqqı yığımı')) return PRINCIPAL_TYPE;
-  if (s.includes('ədv') || s.includes('edv')) return VAT_TYPE;
-  return '';
-}
 
 function safeNum(v) {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -156,7 +149,6 @@ function toBaseRow(eq) {
 
 function buildRows(eqData, bankData) {
   const groups = new Map();
-  const unmatchedBankRows = [];
 
   for (const eq of eqData) {
     const icaze = (eq.icazeNo || '').trim();
@@ -170,41 +162,11 @@ function buildRows(eqData, bankData) {
   }
 
   for (const b of bankData) {
-    const ref = (b.muracietNomresiEqfNomresi || '').trim();
-    const medaxil = trunc2(safeNum(b.medaxil));
-    const mexaric = trunc2(safeNum(b.mexaric));
-    const t = normalizePurpose(b.hesabatUzreTeyinat);
-
-    if (!ref || !groups.has(ref)) {
-      const qeydParts = [
-        b.qeyd || '',
-        b.bankHesab ? `Bank/Hesab: ${b.bankHesab}` : '',
-        b.hesabatUzreTeyinat ? `Təyinat: ${b.hesabatUzreTeyinat}` : '',
-        mexaric > EPS ? `Məxaric: ${fmt2(mexaric)}` : '',
-      ].filter(Boolean);
-
-      unmatchedBankRows.push({
-        reklamYayicisi: b.odeyiciVesait || '',
-        voen: b.voen || '',
-        icazeNo: ref || '',
-        eqTarixi: '',
-        eqNomresi: '',
-        eqMeblegEsas: 0,
-        eqMeblegEdv: 0,
-        odenisTarixi: displayDate(b.tarix),
-        odenisMeblegEsas: t === VAT_TYPE ? 0 : (medaxil > EPS ? medaxil : 0),
-        odenisTarixiEdv: displayDate(b.tarix),
-        odenisMeblegEdv: t === VAT_TYPE ? (medaxil > EPS ? medaxil : 0) : 0,
-        qeyd: qeydParts.join(' | '),
-        status: STATUS.NO_MATCH,
-        _rowColor: 'YELLOW',
-        _changed: true,
-        _matched: false,
-      });
-      continue;
-    }
-
+    const medaxil = safeNum(b.medaxil);
     if (!(medaxil > EPS)) continue;
+    const ref = (b.muracietNomresiEqfNomresi || '').trim();
+    if (!ref || !groups.has(ref)) continue;
+    const t = (b.hesabatUzreTeyinat || '').trim();
     const tx = { tarix: b.tarix, remaining: trunc2(medaxil), qeyd: b.qeyd || '' };
     if (t === PRINCIPAL_TYPE) groups.get(ref).principalTx.push(tx);
     if (t === VAT_TYPE) groups.get(ref).vatTx.push(tx);
@@ -275,6 +237,8 @@ function buildRows(eqData, bankData) {
         _rowColor: rowColor,
         _changed: principalChanged || vatChanged,
         _matched: pTx.length > 0 || vTx.length > 0,
+        _remainingPrincipal: trunc2(w._principalOwed),
+        _remainingVat: trunc2(w._vatOwed),
       });
     }
 
@@ -284,7 +248,28 @@ function buildRows(eqData, bankData) {
       if (hasDate(eq.odenisTarixi)) {
         if (frozenRowsById.has(id)) merged.push(frozenRowsById.get(id));
       } else if (updatedRowsById.has(id)) {
-        merged.push(updatedRowsById.get(id));
+        const updated = updatedRowsById.get(id);
+        merged.push(updated);
+        if (updated.status === STATUS.PARTIAL && (updated._remainingPrincipal > EPS || updated._remainingVat > EPS)) {
+          merged.push({
+            reklamYayicisi: '',
+            voen: '',
+            icazeNo: '',
+            eqTarixi: '',
+            eqNomresi: '',
+            eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
+            eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
+            odenisTarixi: '',
+            odenisMeblegEsas: 0,
+            odenisTarixiEdv: '',
+            odenisMeblegEdv: 0,
+            qeyd: 'Qalıq borc',
+            status: STATUS.DEBT,
+            _rowColor: 'RED',
+            _changed: true,
+            _matched: true,
+          });
+        }
       }
     }
     rows.push(...merged);
@@ -326,14 +311,16 @@ function buildRows(eqData, bankData) {
     }
   }
 
-  rows.push(...unmatchedBankRows);
   return rows;
 }
 
-async function buildExcel(rows) {
+async function buildExcel(rows, onlyUnpaid) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Uzlaşma');
-  const exportRows = rows;
+  const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
+  const exportRows = onlyUnpaid
+    ? rows.filter(r => r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT))
+    : rows;
 
   const headers = [
     'Reklam yayıcısının adı',
@@ -429,7 +416,9 @@ module.exports = async (req, res) => {
   const rows = buildRows(eqData, bankData);
 
   if (req.query && req.query.format === 'xlsx') {
-    const buf = await buildExcel(rows);
+    const scope = String(req.query.scope || 'changed').toLowerCase();
+    const onlyUnpaid = scope !== 'all';
+    const buf = await buildExcel(rows, onlyUnpaid);
     res.setHeader('Content-Disposition', 'attachment; filename=uzlasma.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     return res.send(buf);
