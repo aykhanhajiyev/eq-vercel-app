@@ -236,6 +236,7 @@ function buildRows(eqData, bankData) {
         status,
         _rowColor: rowColor,
         _changed: principalChanged || vatChanged,
+        _matched: pTx.length > 0 || vTx.length > 0,
         _remainingPrincipal: trunc2(w._principalOwed),
         _remainingVat: trunc2(w._vatOwed),
       });
@@ -266,6 +267,7 @@ function buildRows(eqData, bankData) {
             status: STATUS.DEBT,
             _rowColor: 'RED',
             _changed: true,
+            _matched: true,
           });
         }
       }
@@ -304,6 +306,7 @@ function buildRows(eqData, bankData) {
         status: STATUS.OVERPAYMENT,
         _rowColor: 'YELLOW',
         _changed: true,
+        _matched: true,
       });
     }
   }
@@ -316,7 +319,7 @@ async function buildExcel(rows, onlyUnpaid) {
   const ws = wb.addWorksheet('Uzlaşma');
   const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
   const exportRows = onlyUnpaid
-    ? rows.filter(r => r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT))
+    ? rows.filter(r => r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT))
     : rows;
 
   const headers = [
