@@ -287,13 +287,13 @@ function buildRows(eqData, bankData) {
       } else if (updatedRowsById.has(id)) {
         const updated = updatedRowsById.get(id);
         merged.push(updated);
-        if (updated._remainingPrincipal > EPS || updated._remainingVat > EPS) {
+        if (updated.status === STATUS.PARTIAL && (updated._remainingPrincipal > EPS || updated._remainingVat > EPS)) {
           merged.push({
-            reklamYayicisi: updated.reklamYayicisi || '',
-            voen: updated.voen || '',
-            icazeNo: updated.icazeNo || '',
-            eqTarixi: updated.eqTarixi || '',
-            eqNomresi: updated.eqNomresi || '',
+            reklamYayicisi: '',
+            voen: '',
+            icazeNo: '',
+            eqTarixi: '',
+            eqNomresi: '',
             eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
             eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
             odenisTarixi: '',
