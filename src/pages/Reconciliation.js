@@ -3,15 +3,15 @@ import React, { useState } from 'react';
 export default function Reconciliation({ api }) {
   const [loading, setLoading] = useState(false);
 
-  const exportExcel = async (scope) => {
+  const exportExcel = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${api}/api/reconciliation?format=xlsx&scope=${scope}`);
+      const res = await fetch(`${api}/api/reconciliation?format=xlsx`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `uzlasma_${scope}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `uzlasma_${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
     } catch (e) { console.error(e); alert('Export xətası: ' + e.message); }
     setLoading(false);
@@ -22,10 +22,7 @@ export default function Reconciliation({ api }) {
       <div className="module-header">
         <div className="module-title"><span>03</span> — Rekonsiliasiya · Allokasiya</div>
         <div className="toolbar">
-          <button className="btn btn-secondary" onClick={() => exportExcel('changed')} disabled={loading}>
-            {loading ? 'Hazırlanır...' : '⬇ Yalnız Dəyişənlər'}
-          </button>
-          <button className="btn btn-primary" onClick={() => exportExcel('all')} disabled={loading}>
+          <button className="btn btn-primary" onClick={exportExcel} disabled={loading}>
             {loading ? 'Hazırlanır...' : '⬇ Hamısını Export Et'}
           </button>
         </div>

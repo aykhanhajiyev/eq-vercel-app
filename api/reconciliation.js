@@ -34,6 +34,11 @@ function fmt2(n) {
   return trunc2(n).toFixed(2);
 }
 
+function asText(v) {
+  if (v == null) return '';
+  return String(v);
+}
+
 function normDate(v) {
   if (v == null || v === '') return '';
   const asNum = safeNum(v);
@@ -139,7 +144,7 @@ function toBaseRow(eq) {
     odenisMeblegEsas: odEsas,
     odenisTarixiEdv: displayDate(eq.odenisTarixiEdv),
     odenisMeblegEdv: odEdv,
-    qeyd: eq.qeyd || '',
+    qeyd: asText(eq.qeyd),
     _principalOwed: principalOwed,
     _vatOwed: vatOwed,
     status: buildStatus(principalOwed, vatOwed, odEsas, odEdv),
@@ -182,7 +187,8 @@ function buildRows(eqData, bankData) {
         odenisMeblegEsas: tRaw === VAT_TYPE ? 0 : (medaxil > EPS ? medaxil : 0),
         odenisTarixiEdv: displayDate(b.tarix),
         odenisMeblegEdv: tRaw === VAT_TYPE ? (medaxil > EPS ? medaxil : 0) : 0,
-        qeyd: b.qeyd || '',
+        qeyd: asText(b.qeyd),
+        _qeydSource: asText(b.qeyd),
         status: STATUS.NO_MATCH,
         _rowColor: 'YELLOW',
         _changed: true,
@@ -193,7 +199,7 @@ function buildRows(eqData, bankData) {
 
     if (!(medaxil > EPS)) continue;
     const t = (b.hesabatUzreTeyinat || '').trim();
-    const tx = { tarix: b.tarix, remaining: trunc2(medaxil), qeyd: b.qeyd || '' };
+    const tx = { tarix: b.tarix, remaining: trunc2(medaxil), qeyd: asText(b.qeyd) };
     if (t === PRINCIPAL_TYPE) groups.get(ref).principalTx.push(tx);
     if (t === VAT_TYPE) groups.get(ref).vatTx.push(tx);
   }
@@ -289,7 +295,8 @@ function buildRows(eqData, bankData) {
             odenisMeblegEsas: 0,
             odenisTarixiEdv: '',
             odenisMeblegEdv: 0,
-            qeyd: updated.qeyd || '',
+            qeyd: asText(updated.qeyd),
+            _qeydSource: asText(updated.qeyd),
             status: STATUS.DEBT,
             _rowColor: 'RED',
             _changed: true,
@@ -310,7 +317,7 @@ function buildRows(eqData, bankData) {
       const lastP = pLeft.length ? pLeft[pLeft.length - 1] : null;
       const lastV = vLeft.length ? vLeft[vLeft.length - 1] : null;
 
-      const overpayQeyd = (lastP && lastP.qeyd) || (lastV && lastV.qeyd) || '';
+      const overpayQeyd = asText((lastP && lastP.qeyd) || (lastV && lastV.qeyd) || '');
 
       rows.push({
         reklamYayicisi: '',
@@ -325,6 +332,7 @@ function buildRows(eqData, bankData) {
         odenisTarixiEdv: displayDate(lastV ? lastV.tarix : ''),
         odenisMeblegEdv: vatOver,
         qeyd: overpayQeyd,
+        _qeydSource: overpayQeyd,
         status: STATUS.OVERPAYMENT,
         _rowColor: 'YELLOW',
         _changed: true,
@@ -391,7 +399,7 @@ async function buildExcel(rows, onlyUnpaid) {
       trunc2(r.odenisMeblegEsas),
       r.odenisTarixiEdv,
       trunc2(r.odenisMeblegEdv),
-      r.qeyd,
+      asText(r.qeyd || r._qeydSource),
       r.status,
     ]);
     [6, 7, 9, 11].forEach(idx => {
