@@ -285,9 +285,12 @@ function buildRows(eqData, bankData) {
   return rows;
 }
 
-async function buildExcel(rows) {
+async function buildExcel(rows, onlyUnpaid) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Uzlaşma');
+  const exportRows = onlyUnpaid
+    ? rows.filter(r => !String(r.odenisTarixi || '').trim() && r.status !== STATUS.OVERPAYMENT)
+    : rows;
 
   const headers = [
     'Reklam yayıcısının adı',
@@ -319,22 +322,25 @@ async function buildExcel(rows) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
   });
 
-  for (const r of rows) {
+  for (const r of exportRows) {
     const row = ws.addRow([
       r.reklamYayicisi,
       r.voen,
       r.icazeNo,
       r.eqTarixi,
       r.eqNomresi,
-      fmt2(r.eqMeblegEsas),
-      fmt2(r.eqMeblegEdv),
+      trunc2(r.eqMeblegEsas),
+      trunc2(r.eqMeblegEdv),
       r.odenisTarixi,
-      fmt2(r.odenisMeblegEsas),
+      trunc2(r.odenisMeblegEsas),
       r.odenisTarixiEdv,
-      fmt2(r.odenisMeblegEdv),
+      trunc2(r.odenisMeblegEdv),
       r.qeyd,
       r.status,
     ]);
+    [6, 7, 9, 11].forEach(idx => {
+      row.getCell(idx).numFmt = '0.00';
+    });
     if (r._rowColor === 'GREEN') {
       row.eachCell(cell => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6EFCE' } };
@@ -376,7 +382,9 @@ module.exports = async (req, res) => {
   const rows = buildRows(eqData, bankData);
 
   if (req.query && req.query.format === 'xlsx') {
-    const buf = await buildExcel(rows);
+    const scope = String(req.query.scope || 'unpaid').toLowerCase();
+    const onlyUnpaid = scope !== 'all';
+    const buf = await buildExcel(rows, onlyUnpaid);
     res.setHeader('Content-Disposition', 'attachment; filename=uzlasma.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     return res.send(buf);
