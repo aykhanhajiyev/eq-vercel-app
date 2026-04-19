@@ -42,6 +42,17 @@ const parseDate = v => {
   if (match) return fmt(match[1], match[2], match[3]);
   return String(v);
 };
+const showDate = v => {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') return parseDate(v);
+  const s = String(v).trim();
+  if (!s) return '';
+  const d = new Date(s);
+  if (!isNaN(d.getTime()) && !/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(s)) {
+    return parseDate(d);
+  }
+  return parseDate(s);
+};
 
 export default function EQModule({ api, onUpdate }) {
   const [data, setData] = useState([]);
@@ -188,9 +199,9 @@ export default function EQModule({ api, onUpdate }) {
                 <td>{row.eqNomresi}</td>
                 <td className="num num-pos">{fmt(row.eqMeblegEsas)}</td>
                 <td className="num num-pos">{fmt(row.eqMeblegEdv)}</td>
-                <td>{row.odenisTarixi}</td>
+                <td>{showDate(row.odenisTarixi)}</td>
                 <td className="num num-pos">{fmt(row.odenisMeblegEsas)}</td>
-                <td>{row.odenisTarixiEdv}</td>
+                <td>{showDate(row.odenisTarixiEdv)}</td>
                 <td className="num num-pos">{fmt(row.odenisMeblegEdv)}</td>
                 <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.qeyd}</td>
                 <td>
