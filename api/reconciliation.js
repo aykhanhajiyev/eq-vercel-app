@@ -34,10 +34,6 @@ function fmt2(n) {
   return trunc2(n).toFixed(2);
 }
 
-function isAvansRef(v) {
-  return String(v || '').trim().toLocaleLowerCase('az') === 'avans';
-}
-
 function normDate(v) {
   if (v == null || v === '') return '';
   const asNum = safeNum(v);
@@ -170,7 +166,7 @@ function buildRows(eqData, bankData) {
   for (const b of bankData) {
     const ref = (b.muracietNomresiEqfNomresi || '').trim();
     const medaxil = trunc2(safeNum(b.medaxil));
-    if (!ref || isAvansRef(ref)) continue;
+    if (!ref) continue;
 
     if (!groups.has(ref)) {
       const tRaw = (b.hesabatUzreTeyinat || '').trim();
