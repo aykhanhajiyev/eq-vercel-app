@@ -21,6 +21,14 @@ const STATUS_COLOR = {
   'TAM ÖDƏNİLİB': 'FFD9EAD3',
   'ARTIQ ÖDƏNİŞ': 'FFFCE5CD',
 };
+const BASE_FONT = { name: 'Arial', size: 10 };
+const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCE6D4' } };
+const GRID_BORDER = {
+  top: { style: 'thin', color: { argb: 'FF000000' } },
+  left: { style: 'thin', color: { argb: 'FF000000' } },
+  bottom: { style: 'thin', color: { argb: 'FF000000' } },
+  right: { style: 'thin', color: { argb: 'FF000000' } },
+};
 
 export default function Reconciliation({ api }) {
   const [loading, setLoading] = useState(false);
@@ -38,14 +46,18 @@ export default function Reconciliation({ api }) {
 
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('Allocation');
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
 
       const headerRow = ws.addRow(HEADERS);
-      headerRow.height = 32;
-      headerRow.eachCell(cell => {
-        cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
-        cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF203864' } };
+      headerRow.height = 28;
+      headerRow.eachCell((cell, colNumber) => {
+        cell.font = { ...BASE_FONT, bold: true };
+        cell.fill = HEADER_FILL;
         cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.border    = { bottom: { style: 'thin', color: { argb: 'FF999999' } } };
+        cell.border = GRID_BORDER;
+        if (colNumber === 3) {
+          cell.font = { ...BASE_FONT, bold: true, color: { argb: 'FFFF0000' } };
+        }
       });
       ws.columns.forEach((col, i) => { col.width = COL_WIDTHS[i] || 14; });
 
@@ -64,11 +76,21 @@ export default function Reconciliation({ api }) {
           row.odenisMeblegEdv || '',
           row.qeyd || '',
         ]);
+        r.height = 22;
+        r.eachCell((cell, colNumber) => {
+          cell.font = { ...BASE_FONT };
+          cell.alignment = {
+            vertical: 'middle',
+            horizontal: colNumber === 1 ? 'left' : 'center',
+            wrapText: true,
+          };
+          cell.border = GRID_BORDER;
+        });
         const color = STATUS_COLOR[row.status];
         if (color) {
           r.eachCell(cell => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
-            if (row.status === 'ARTIQ ÖDƏNİŞ') cell.font = { italic: true, bold: true, size: 10 };
+            if (row.status === 'ARTIQ ÖDƏNİŞ') cell.font = { ...BASE_FONT, italic: true, bold: true, strike: true };
           });
         }
       });
