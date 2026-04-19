@@ -19,8 +19,6 @@ const COL_WIDTHS = [38, 16, 16, 18, 24, 16, 16, 14, 16, 14, 16, 18];
 
 const STATUS_COLOR = {
   'TAM ÖDƏNİLİB': 'FFD9EAD3',
-  'QİSMƏN ÖDƏNİLİB': 'FFFFF2CC',
-  'ÖDƏNİLMƏYİB': 'FFF4CCCC',
   'ARTIQ ÖDƏNİŞ': 'FFFCE5CD',
 };
 
@@ -99,7 +97,7 @@ export default function Reconciliation({ api }) {
         <div className="es-icon">📊</div>
         <p>Bank medaxilləri <b>Müraciət № / EQF №</b> ilə İCAZƏ üzrə qaimələrə FIFO allokasiya olunur.</p>
         <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>
-          🟢 TAM ÖDƏNİLİB &nbsp;·&nbsp; 🟡 QİSMƏN ÖDƏNİLİB &nbsp;·&nbsp; 🔴 ÖDƏNİLMƏYİB &nbsp;·&nbsp; 🟠 ARTIQ ÖDƏNİŞ
+          🟢 TAM ÖDƏNİLİB &nbsp;·&nbsp; ⚪ QİSMƏN ÖDƏNİLİB &nbsp;·&nbsp; ⚪ ÖDƏNİLMƏYİB &nbsp;·&nbsp; 🟠 ARTIQ ÖDƏNİŞ
         </p>
       </div>
     </div>

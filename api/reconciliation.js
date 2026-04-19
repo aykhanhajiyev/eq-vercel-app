@@ -185,48 +185,41 @@ function buildRows(eqData, bankData) {
       });
     });
 
-    // Bank leftovers → ARTIQ ÖDƏNİŞ rows, emitted right after the related invoices.
-    pBanks
+    // Bank leftovers → single ARTIQ ÖDƏNİŞ row per group (both principal + VAT in same row).
+    const principalLeft = pBanks
       .filter(tx => tx.remaining > EPS)
-      .sort((a, b) => cmpDate(a.tarix, b.tarix))
-      .forEach(tx => {
-        rows.push({
-          reklamYayicisi: '',
-          voen: '',
-          icazeNo: '',
-          eqTarixi: '',
-          eqNomresi: '',
-          eqMeblegEsas: 0,
-          eqMeblegEdv: 0,
-          odenisTarixi: displayDate(tx.tarix),
-          odenisMeblegEsas: tx.remaining,
-          odenisTarixiEdv: '',
-          odenisMeblegEdv: 0,
-          qeyd: tx.qeyd || '',
-          status: STATUS.OVERPAYMENT,
-        });
-      });
+      .sort((a, b) => cmpDate(a.tarix, b.tarix));
+    const vatLeft = vBanks
+      .filter(tx => tx.remaining > EPS)
+      .sort((a, b) => cmpDate(a.tarix, b.tarix));
 
-    vBanks
-      .filter(tx => tx.remaining > EPS)
-      .sort((a, b) => cmpDate(a.tarix, b.tarix))
-      .forEach(tx => {
-        rows.push({
-          reklamYayicisi: '',
-          voen: '',
-          icazeNo: '',
-          eqTarixi: '',
-          eqNomresi: '',
-          eqMeblegEsas: 0,
-          eqMeblegEdv: 0,
-          odenisTarixi: '',
-          odenisMeblegEsas: 0,
-          odenisTarixiEdv: displayDate(tx.tarix),
-          odenisMeblegEdv: tx.remaining,
-          qeyd: tx.qeyd || '',
-          status: STATUS.OVERPAYMENT,
-        });
+    const principalOverpay = principalLeft.reduce((s, tx) => s + tx.remaining, 0);
+    const vatOverpay = vatLeft.reduce((s, tx) => s + tx.remaining, 0);
+
+    if (principalOverpay > EPS || vatOverpay > EPS) {
+      const qeyds = []
+        .concat(principalLeft.map(tx => tx.qeyd || ''))
+        .concat(vatLeft.map(tx => tx.qeyd || ''))
+        .map(s => s.trim())
+        .filter(Boolean);
+      const uniqQeyd = Array.from(new Set(qeyds)).join('; ');
+
+      rows.push({
+        reklamYayicisi: '',
+        voen: '',
+        icazeNo: '',
+        eqTarixi: '',
+        eqNomresi: '',
+        eqMeblegEsas: 0,
+        eqMeblegEdv: 0,
+        odenisTarixi: displayDate(principalLeft.length ? principalLeft[principalLeft.length - 1].tarix : ''),
+        odenisMeblegEsas: principalOverpay > EPS ? principalOverpay : 0,
+        odenisTarixiEdv: displayDate(vatLeft.length ? vatLeft[vatLeft.length - 1].tarix : ''),
+        odenisMeblegEdv: vatOverpay > EPS ? vatOverpay : 0,
+        qeyd: uniqQeyd,
+        status: STATUS.OVERPAYMENT,
       });
+    }
   });
 
   return rows;
