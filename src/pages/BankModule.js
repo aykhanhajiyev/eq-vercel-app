@@ -88,6 +88,22 @@ export default function BankModule({ api, onUpdate }) {
     load(page, search); onUpdate(); showToast('Silindi');
   };
 
+  const deleteAll = async () => {
+    const password = window.prompt('Bütün bank hesablarını silmək üçün şifrəni daxil edin:');
+    if (password == null) return;
+    if (!window.confirm('DİQQƏT: Bütün bank hesabları silinəcək. Davam edilsin?')) return;
+    try {
+      const r = await fetch(`${api}/api/bank`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return showToast(d.error || 'Xəta', true);
+      load(1, ''); onUpdate(); showToast(`${d.deleted ?? 0} qeyd silindi`);
+    } catch (e) { showToast(`Xəta: ${e.message}`, true); }
+  };
+
   const handleFile = async file => {
     if (!file) return;
     setLoading(true);
@@ -156,6 +172,7 @@ export default function BankModule({ api, onUpdate }) {
             onChange={e => { setSearch(e.target.value); setPage(1); }} />
           <button className="btn btn-secondary" onClick={() => setImportModal(true)}>⬆ Import</button>
           <button className="btn btn-secondary" onClick={exportXlsx}>⬇ Export</button>
+          <button className="btn btn-danger" onClick={deleteAll}>🗑 Hamısını Sil</button>
           <button className="btn btn-primary" onClick={openAdd}>+ Əlavə Et</button>
         </div>
       </div>

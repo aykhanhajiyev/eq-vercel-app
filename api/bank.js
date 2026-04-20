@@ -1,9 +1,11 @@
 const connectDB = require('./_db');
 const { BankHesab } = require('./_models');
 
+const ADMIN_PASSWORD = 'Aslan123@';
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -31,6 +33,15 @@ module.exports = async (req, res) => {
   if (req.method === 'POST') {
     const doc = await BankHesab.create(req.body);
     return res.json(doc);
+  }
+
+  if (req.method === 'DELETE') {
+    const password = (req.body && req.body.password) || '';
+    if (password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Şifrə səhvdir' });
+    }
+    const result = await BankHesab.deleteMany({});
+    return res.json({ success: true, deleted: result.deletedCount });
   }
 
   res.status(405).json({ error: 'Method not allowed' });
