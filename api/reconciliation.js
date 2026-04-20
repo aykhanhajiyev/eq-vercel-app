@@ -14,20 +14,17 @@ const STATUS = {
   PRINCIPAL_UNPAID: 'ƏSAS Məbləğ ödənilməyib',
   VAT_UNPAID: 'ƏDV ödənişi ödənilməyib',
   OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
-  DEBT: 'BORC',
   NO_MATCH: 'UYĞUN EQ TAPILMADI',
 };
 
 const ROW_COLOR = {
   GREEN: 'GREEN',
   YELLOW: 'YELLOW',
-  RED: 'RED',
 };
 
 const FILL = {
   GREEN: 'FFC6EFCE',
   YELLOW: 'FFFFF2CC',
-  RED: 'FFF8CBAD',
   HEADER: 'FFE2EFDA',
 };
 
@@ -307,33 +304,6 @@ function reconcileGroup(key, group) {
 
     const updated = updatedRowsById.get(id);
     merged.push(updated);
-
-    const remaining = updated._remainingPrincipal > EPS || updated._remainingVat > EPS;
-    const isUnsettled =
-      updated.status === STATUS.PARTIAL ||
-      updated.status === STATUS.PRINCIPAL_UNPAID ||
-      updated.status === STATUS.VAT_UNPAID;
-
-    if (isUnsettled && remaining) {
-      merged.push({
-        reklamYayicisi: '',
-        voen: '',
-        icazeNo: '',
-        eqTarixi: '',
-        eqNomresi: '',
-        eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
-        eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
-        odenisTarixi: '',
-        odenisMeblegEsas: 0,
-        odenisTarixiEdv: '',
-        odenisMeblegEdv: 0,
-        qeyd: updated.qeyd || '',
-        status: STATUS.DEBT,
-        _rowColor: ROW_COLOR.RED,
-        _changed: true,
-        _matched: true,
-      });
-    }
   }
 
   const pLeft = isAvansGroup ? [] : pTx.filter(x => x.remaining > EPS);
@@ -440,7 +410,7 @@ function filterExportRows(rows, onlyUnpaid) {
   if (!onlyUnpaid) return rows;
   const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
   return rows.filter(r =>
-    (r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT)) ||
+    (r._matched && r._changed && hasAnyDate(r)) ||
     r.status === STATUS.NO_MATCH
   );
 }
