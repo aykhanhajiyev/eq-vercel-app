@@ -10,9 +10,24 @@ const STATUS = {
   UNPAID: 'ÖDƏNİLMƏYİB',
   PARTIAL: 'QİSMƏN ÖDƏNİLİB',
   PAID: 'TAM ÖDƏNİLİB',
+  PRINCIPAL_UNPAID: 'ƏSAS Məbləğ ödənilməyib',
+  VAT_UNPAID: 'ƏDV ödənişi ödənilməyib',
   OVERPAYMENT: 'ARTIQ ÖDƏNİŞ',
   DEBT: 'BORC',
   NO_MATCH: 'UYĞUN EQ TAPILMADI',
+};
+
+const ROW_COLOR = {
+  GREEN: 'GREEN',
+  YELLOW: 'YELLOW',
+  RED: 'RED',
+};
+
+const FILL = {
+  GREEN: 'FFC6EFCE',
+  YELLOW: 'FFFFF2CC',
+  RED: 'FFF8CBAD',
+  HEADER: 'FFE2EFDA',
 };
 
 function safeNum(v) {
@@ -24,26 +39,24 @@ function safeNum(v) {
   return 0;
 }
 
-function trunc2(n) {
+function round2(n) {
   const x = safeNum(n);
-  const sign = x < 0 ? -1 : 1;
-  return sign * (Math.trunc(Math.abs(x) * 100) / 100);
-}
-
-function fmt2(n) {
-  return trunc2(n).toFixed(2);
+  return Math.round(x * 100) / 100;
 }
 
 function normDate(v) {
   if (v == null || v === '') return '';
-  const asNum = safeNum(v);
-  if (asNum > 0 && String(v).trim().match(/^\d+(\.\d+)?$/)) {
-    const ms = Math.round((asNum - 25569) * 86400 * 1000);
-    const d = new Date(ms);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  const s = String(v).trim();
+
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const asNum = safeNum(s);
+    if (asNum > 0) {
+      const ms = Math.round((asNum - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
   }
 
-  const s = String(v).trim();
   const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 
@@ -55,17 +68,20 @@ function normDate(v) {
 function displayDate(v) {
   if (v == null || v === '') return '';
   const s = String(v).trim();
+
   const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (m) return `${m[1].padStart(2, '0')}.${m[2].padStart(2, '0')}.${m[3]}`;
 
-  const asNum = safeNum(v);
-  if (asNum > 0 && s.match(/^\d+(\.\d+)?$/)) {
-    const ms = Math.round((asNum - 25569) * 86400 * 1000);
-    const d = new Date(ms);
-    if (!isNaN(d.getTime())) {
-      const dd = String(d.getUTCDate()).padStart(2, '0');
-      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-      return `${dd}.${mm}.${d.getUTCFullYear()}`;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const asNum = safeNum(s);
+    if (asNum > 0) {
+      const ms = Math.round((asNum - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      if (!isNaN(d.getTime())) {
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        return `${dd}.${mm}.${d.getUTCFullYear()}`;
+      }
     }
   }
 
@@ -88,11 +104,14 @@ function hasDate(v) {
 }
 
 function buildStatus(principalOwed, vatOwed, principalPaid, vatPaid) {
-  const rem = principalOwed + vatOwed;
-  const paid = principalPaid + vatPaid;
-  if (rem < EPS) return STATUS.PAID;
-  if (paid > EPS) return STATUS.PARTIAL;
-  return STATUS.UNPAID;
+  const principalCleared = principalOwed < EPS;
+  const vatCleared = vatOwed < EPS;
+
+  if (principalCleared && vatCleared) return STATUS.PAID;
+  if (principalCleared && !vatCleared) return STATUS.VAT_UNPAID;
+  if (!principalCleared && vatPaid > EPS) return STATUS.PRINCIPAL_UNPAID;
+  if (principalPaid < EPS && vatPaid < EPS) return STATUS.UNPAID;
+  return STATUS.PARTIAL;
 }
 
 function allocateFifo(items, bankTxs, owedKey, paidKey, dateKey) {
@@ -105,9 +124,9 @@ function allocateFifo(items, bankTxs, owedKey, paidKey, dateKey) {
         continue;
       }
       const take = Math.min(tx.remaining, it[owedKey]);
-      it[paidKey] = trunc2(it[paidKey] + take);
-      it[owedKey] = trunc2(it[owedKey] - take);
-      tx.remaining = trunc2(tx.remaining - take);
+      it[paidKey] = round2(it[paidKey] + take);
+      it[owedKey] = round2(it[owedKey] - take);
+      tx.remaining = round2(tx.remaining - take);
       it[dateKey] = tx.tarix;
       if (it[owedKey] < EPS) {
         it[owedKey] = 0;
@@ -119,13 +138,13 @@ function allocateFifo(items, bankTxs, owedKey, paidKey, dateKey) {
 }
 
 function toBaseRow(eq) {
-  const eqEsas = trunc2(eq.eqMeblegEsas);
-  const eqEdv = trunc2(eq.eqMeblegEdv);
-  const odEsas = trunc2(eq.odenisMeblegEsas);
-  const odEdv = trunc2(eq.odenisMeblegEdv);
+  const eqEsas = round2(eq.eqMeblegEsas);
+  const eqEdv = round2(eq.eqMeblegEdv);
+  const odEsas = round2(eq.odenisMeblegEsas);
+  const odEdv = round2(eq.odenisMeblegEdv);
 
-  const principalOwed = Math.max(0, trunc2(eqEsas - odEsas));
-  const vatOwed = Math.max(0, trunc2(eqEdv - odEdv));
+  const principalOwed = Math.max(0, round2(eqEsas - odEsas));
+  const vatOwed = Math.max(0, round2(eqEdv - odEdv));
 
   return {
     reklamYayicisi: eq.reklamYayicisi || '',
@@ -148,28 +167,33 @@ function toBaseRow(eq) {
   };
 }
 
-function buildRows(eqData, bankData) {
+function groupEqs(eqData) {
   const groups = new Map();
-  const unmatchedBankRows = [];
-
   for (const eq of eqData) {
     const icaze = (eq.icazeNo || '').trim();
     const key = icaze === 'Avans'
-      ? `__avans__${eq._id}` // Avans rows are never merged/reconciled
+      ? `__avans__${eq._id}`
       : (icaze || `__no_icaze__${eq._id}`);
     if (!groups.has(key)) {
       groups.set(key, { eqs: [], principalTx: [], vatTx: [] });
     }
     groups.get(key).eqs.push(eq);
   }
+  return groups;
+}
+
+function distributeBank(bankData, groups) {
+  const unmatchedBankRows = [];
 
   for (const b of bankData) {
     const ref = (b.muracietNomresiEqfNomresi || '').trim();
-    const medaxil = trunc2(safeNum(b.medaxil));
     if (!ref) continue;
+
+    const medaxil = round2(safeNum(b.medaxil));
 
     if (!groups.has(ref)) {
       const tRaw = (b.hesabatUzreTeyinat || '').trim();
+      const amount = medaxil > EPS ? medaxil : 0;
       unmatchedBankRows.push({
         reklamYayicisi: b.odeyiciVesait || '',
         voen: b.voen || '',
@@ -179,12 +203,12 @@ function buildRows(eqData, bankData) {
         eqMeblegEsas: 0,
         eqMeblegEdv: 0,
         odenisTarixi: displayDate(b.tarix),
-        odenisMeblegEsas: tRaw === VAT_TYPE ? 0 : (medaxil > EPS ? medaxil : 0),
+        odenisMeblegEsas: tRaw === VAT_TYPE ? 0 : amount,
         odenisTarixiEdv: displayDate(b.tarix),
-        odenisMeblegEdv: tRaw === VAT_TYPE ? (medaxil > EPS ? medaxil : 0) : 0,
+        odenisMeblegEdv: tRaw === VAT_TYPE ? amount : 0,
         qeyd: b.qeyd || '',
         status: STATUS.NO_MATCH,
-        _rowColor: 'YELLOW',
+        _rowColor: ROW_COLOR.YELLOW,
         _changed: true,
         _matched: false,
       });
@@ -192,224 +216,255 @@ function buildRows(eqData, bankData) {
     }
 
     if (!(medaxil > EPS)) continue;
+
     const t = (b.hesabatUzreTeyinat || '').trim();
-    const tx = { tarix: b.tarix, remaining: trunc2(medaxil), qeyd: b.qeyd || '' };
+    const tx = { tarix: b.tarix, remaining: round2(medaxil), qeyd: b.qeyd || '' };
     if (t === PRINCIPAL_TYPE) groups.get(ref).principalTx.push(tx);
-    if (t === VAT_TYPE) groups.get(ref).vatTx.push(tx);
+    else if (t === VAT_TYPE) groups.get(ref).vatTx.push(tx);
   }
 
-  const keys = Array.from(groups.keys());
-  const rows = [];
+  return unmatchedBankRows;
+}
 
-  for (const key of keys) {
-    const g = groups.get(key);
-    const isAvansGroup = key.startsWith('__avans__');
-    const originalEqs = g.eqs.slice();
-    const sortedEqs = originalEqs.slice().sort((a, b) => cmpDate(a.eqTarixi, b.eqTarixi));
+function reconcileGroup(key, group) {
+  const isAvansGroup = key.startsWith('__avans__');
+  const originalEqs = group.eqs.slice();
+  const sortedEqs = originalEqs.slice().sort((a, b) => cmpDate(a.eqTarixi, b.eqTarixi));
 
-    const frozenRowsById = new Map();
-    const updatable = [];
+  const frozenRowsById = new Map();
+  const updatable = [];
 
-    for (const eq of sortedEqs) {
-      if (hasDate(eq.odenisTarixi)) {
-        frozenRowsById.set(String(eq._id), toBaseRow(eq));
-      } else {
-        updatable.push(eq);
-      }
+  for (const eq of sortedEqs) {
+    if (hasDate(eq.odenisTarixi)) {
+      frozenRowsById.set(String(eq._id), toBaseRow(eq));
+    } else {
+      updatable.push(eq);
     }
+  }
 
-    const work = updatable.map(eq => {
-      const base = toBaseRow(eq);
-      return {
-        ...base,
-        _principalPaid: base.odenisMeblegEsas,
-        _vatPaid: base.odenisMeblegEdv,
-        _principalDateRaw: eq.odenisTarixi || '',
-        _vatDateRaw: eq.odenisTarixiEdv || '',
-      };
+  const work = updatable.map(eq => {
+    const base = toBaseRow(eq);
+    return {
+      ...base,
+      _principalPaid: base.odenisMeblegEsas,
+      _vatPaid: base.odenisMeblegEdv,
+      _principalDateRaw: eq.odenisTarixi || '',
+      _vatDateRaw: eq.odenisTarixiEdv || '',
+    };
+  });
+
+  const pTx = group.principalTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
+  const vTx = group.vatTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
+
+  if (!isAvansGroup) {
+    allocateFifo(work, pTx, '_principalOwed', '_principalPaid', '_principalDateRaw');
+    allocateFifo(work, vTx, '_vatOwed', '_vatPaid', '_vatDateRaw');
+  }
+
+  const updatedRowsById = new Map();
+  for (let i = 0; i < work.length; i++) {
+    const w = work[i];
+    const eq = updatable[i];
+    const base = toBaseRow(eq);
+    const principalChanged = round2(w._principalPaid - base.odenisMeblegEsas) > EPS;
+    const vatChanged = round2(w._vatPaid - base.odenisMeblegEdv) > EPS;
+    const status = buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid);
+    const rowColor = status === STATUS.PAID && (principalChanged || vatChanged)
+      ? ROW_COLOR.GREEN
+      : '';
+
+    updatedRowsById.set(String(eq._id), {
+      reklamYayicisi: w.reklamYayicisi,
+      voen: w.voen,
+      icazeNo: w.icazeNo,
+      eqTarixi: w.eqTarixi,
+      eqNomresi: w.eqNomresi,
+      eqMeblegEsas: round2(w.eqMeblegEsas),
+      eqMeblegEdv: round2(w.eqMeblegEdv),
+      odenisTarixi: displayDate(w._principalDateRaw),
+      odenisMeblegEsas: round2(w._principalPaid),
+      odenisTarixiEdv: displayDate(w._vatDateRaw),
+      odenisMeblegEdv: round2(w._vatPaid),
+      qeyd: w.qeyd,
+      status,
+      _rowColor: rowColor,
+      _changed: principalChanged || vatChanged,
+      _matched: pTx.length > 0 || vTx.length > 0,
+      _remainingPrincipal: round2(w._principalOwed),
+      _remainingVat: round2(w._vatOwed),
     });
+  }
 
-    const pTx = g.principalTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
-    const vTx = g.vatTx.slice().sort((a, b) => cmpDate(a.tarix, b.tarix));
-
-    if (!isAvansGroup) {
-      allocateFifo(work, pTx, '_principalOwed', '_principalPaid', '_principalDateRaw');
-      allocateFifo(work, vTx, '_vatOwed', '_vatPaid', '_vatDateRaw');
+  const merged = [];
+  for (const eq of originalEqs) {
+    const id = String(eq._id);
+    if (hasDate(eq.odenisTarixi)) {
+      if (frozenRowsById.has(id)) merged.push(frozenRowsById.get(id));
+      continue;
     }
+    if (!updatedRowsById.has(id)) continue;
 
-    const updatedRowsById = new Map();
-    for (let i = 0; i < work.length; i++) {
-      const w = work[i];
-      const eq = updatable[i];
-      const base = toBaseRow(eq);
-      const principalChanged = trunc2(w._principalPaid - base.odenisMeblegEsas) > EPS;
-      const vatChanged = trunc2(w._vatPaid - base.odenisMeblegEdv) > EPS;
-      const status = buildStatus(w._principalOwed, w._vatOwed, w._principalPaid, w._vatPaid);
-      const rowColor = status === STATUS.PAID && (principalChanged || vatChanged) ? 'GREEN' : '';
-      updatedRowsById.set(String(eq._id), {
-        reklamYayicisi: w.reklamYayicisi,
-        voen: w.voen,
-        icazeNo: w.icazeNo,
-        eqTarixi: w.eqTarixi,
-        eqNomresi: w.eqNomresi,
-        eqMeblegEsas: trunc2(w.eqMeblegEsas),
-        eqMeblegEdv: trunc2(w.eqMeblegEdv),
-        odenisTarixi: displayDate(w._principalDateRaw),
-        odenisMeblegEsas: trunc2(w._principalPaid),
-        odenisTarixiEdv: displayDate(w._vatDateRaw),
-        odenisMeblegEdv: trunc2(w._vatPaid),
-        qeyd: w.qeyd,
-        status,
-        _rowColor: rowColor,
-        _changed: principalChanged || vatChanged,
-        _matched: pTx.length > 0 || vTx.length > 0,
-        _remainingPrincipal: trunc2(w._principalOwed),
-        _remainingVat: trunc2(w._vatOwed),
-      });
-    }
+    const updated = updatedRowsById.get(id);
+    merged.push(updated);
 
-    const merged = [];
-    for (const eq of originalEqs) {
-      const id = String(eq._id);
-      if (hasDate(eq.odenisTarixi)) {
-        if (frozenRowsById.has(id)) merged.push(frozenRowsById.get(id));
-      } else if (updatedRowsById.has(id)) {
-        const updated = updatedRowsById.get(id);
-        merged.push(updated);
-        if (updated.status === STATUS.PARTIAL && (updated._remainingPrincipal > EPS || updated._remainingVat > EPS)) {
-          merged.push({
-            reklamYayicisi: '',
-            voen: '',
-            icazeNo: '',
-            eqTarixi: '',
-            eqNomresi: '',
-            eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
-            eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
-            odenisTarixi: '',
-            odenisMeblegEsas: 0,
-            odenisTarixiEdv: '',
-            odenisMeblegEdv: 0,
-            qeyd: updated.qeyd || '',
-            status: STATUS.DEBT,
-            _rowColor: 'RED',
-            _changed: true,
-            _matched: true,
-          });
-        }
-      }
-    }
-    rows.push(...merged);
+    const remaining = updated._remainingPrincipal > EPS || updated._remainingVat > EPS;
+    const isUnsettled =
+      updated.status === STATUS.PARTIAL ||
+      updated.status === STATUS.PRINCIPAL_UNPAID ||
+      updated.status === STATUS.VAT_UNPAID;
 
-    const pLeft = isAvansGroup ? [] : pTx.filter(x => x.remaining > EPS);
-    const vLeft = isAvansGroup ? [] : vTx.filter(x => x.remaining > EPS);
-
-    const principalOver = trunc2(pLeft.reduce((s, x) => s + x.remaining, 0));
-    const vatOver = trunc2(vLeft.reduce((s, x) => s + x.remaining, 0));
-
-    if (principalOver > EPS || vatOver > EPS) {
-      const lastP = pLeft.length ? pLeft[pLeft.length - 1] : null;
-      const lastV = vLeft.length ? vLeft[vLeft.length - 1] : null;
-
-      const overpayQeyd = (originalEqs.find(x => String(x.qeyd || '') !== '')?.qeyd) || '';
-
-      rows.push({
+    if (isUnsettled && remaining) {
+      merged.push({
         reklamYayicisi: '',
         voen: '',
-        icazeNo: key.startsWith('__no_icaze__') ? '' : key,
+        icazeNo: '',
         eqTarixi: '',
         eqNomresi: '',
-        eqMeblegEsas: 0,
-        eqMeblegEdv: 0,
-        odenisTarixi: displayDate(lastP ? lastP.tarix : ''),
-        odenisMeblegEsas: principalOver,
-        odenisTarixiEdv: displayDate(lastV ? lastV.tarix : ''),
-        odenisMeblegEdv: vatOver,
-        qeyd: overpayQeyd,
-        status: STATUS.OVERPAYMENT,
-        _rowColor: 'YELLOW',
+        eqMeblegEsas: updated._remainingPrincipal > EPS ? updated._remainingPrincipal : 0,
+        eqMeblegEdv: updated._remainingVat > EPS ? updated._remainingVat : 0,
+        odenisTarixi: '',
+        odenisMeblegEsas: 0,
+        odenisTarixiEdv: '',
+        odenisMeblegEdv: 0,
+        qeyd: updated.qeyd || '',
+        status: STATUS.DEBT,
+        _rowColor: ROW_COLOR.RED,
         _changed: true,
         _matched: true,
       });
     }
   }
 
+  const pLeft = isAvansGroup ? [] : pTx.filter(x => x.remaining > EPS);
+  const vLeft = isAvansGroup ? [] : vTx.filter(x => x.remaining > EPS);
+
+  const principalOver = round2(pLeft.reduce((s, x) => s + x.remaining, 0));
+  const vatOver = round2(vLeft.reduce((s, x) => s + x.remaining, 0));
+
+  if (principalOver > EPS || vatOver > EPS) {
+    const lastP = pLeft.length ? pLeft[pLeft.length - 1] : null;
+    const lastV = vLeft.length ? vLeft[vLeft.length - 1] : null;
+    const overpayQeyd = (originalEqs.find(x => String(x.qeyd || '') !== '')?.qeyd) || '';
+    const sourceEq =
+      originalEqs.find(x => (x.reklamYayicisi || '').trim() || (x.voen || '').trim()) ||
+      originalEqs[0] ||
+      {};
+
+    merged.push({
+      reklamYayicisi: sourceEq.reklamYayicisi || '',
+      voen: sourceEq.voen || '',
+      icazeNo: key.startsWith('__no_icaze__') ? '' : key,
+      eqTarixi: '',
+      eqNomresi: '',
+      eqMeblegEsas: 0,
+      eqMeblegEdv: 0,
+      odenisTarixi: displayDate(lastP ? lastP.tarix : ''),
+      odenisMeblegEsas: principalOver,
+      odenisTarixiEdv: displayDate(lastV ? lastV.tarix : ''),
+      odenisMeblegEdv: vatOver,
+      qeyd: overpayQeyd,
+      status: STATUS.OVERPAYMENT,
+      _rowColor: ROW_COLOR.YELLOW,
+      _changed: true,
+      _matched: true,
+    });
+  }
+
+  return merged;
+}
+
+function buildRows(eqData, bankData) {
+  const groups = groupEqs(eqData);
+  const unmatchedBankRows = distributeBank(bankData, groups);
+
+  const rows = [];
+  for (const [key, group] of groups) {
+    rows.push(...reconcileGroup(key, group));
+  }
   rows.push(...unmatchedBankRows);
   return rows;
+}
+
+const EXCEL_HEADERS = [
+  'Reklam yayıcısının adı',
+  'VÖEN',
+  'İcazə',
+  'Elektron qaimənin tarixi',
+  'Elektron qaimənin nömrəsi',
+  'EQ məbləği(əsas)',
+  'EQ məbləği(ƏDV)',
+  'Ödəniş tarixi',
+  'Ödəniş məbləği(Əsas)',
+  'Ödəniş tarixi(ƏDV)',
+  'Ödəniş məbləği(ƏDV)',
+  'Qeyd',
+  'Status',
+];
+
+const EXCEL_COLUMNS = [
+  { width: 40 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 26 },
+  { width: 16 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 18 },
+  { width: 18 }, { width: 20 }, { width: 18 },
+];
+
+const NUMERIC_COL_INDEXES = [6, 7, 9, 11];
+
+function rowToExcelValues(r) {
+  return [
+    r.reklamYayicisi,
+    r.voen,
+    r.icazeNo,
+    r.eqTarixi,
+    r.eqNomresi,
+    round2(r.eqMeblegEsas),
+    round2(r.eqMeblegEdv),
+    r.odenisTarixi,
+    round2(r.odenisMeblegEsas),
+    r.odenisTarixiEdv,
+    round2(r.odenisMeblegEdv),
+    r.qeyd,
+    r.status,
+  ];
+}
+
+function applyRowFill(row, colorKey) {
+  const argb = FILL[colorKey];
+  if (!argb) return;
+  row.eachCell(cell => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+  });
+}
+
+function filterExportRows(rows, onlyUnpaid) {
+  if (!onlyUnpaid) return rows;
+  const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
+  return rows.filter(r =>
+    (r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT)) ||
+    r.status === STATUS.NO_MATCH
+  );
 }
 
 async function buildExcel(rows, onlyUnpaid) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Uzlaşma');
-  const hasAnyDate = r => String(r.odenisTarixi || '').trim() || String(r.odenisTarixiEdv || '').trim();
-  const exportRows = onlyUnpaid
-    ? rows.filter(r =>
-      (r._matched && r._changed && (hasAnyDate(r) || r.status === STATUS.DEBT)) ||
-      r.status === STATUS.NO_MATCH
-    )
-    : rows;
+  const exportRows = filterExportRows(rows, onlyUnpaid);
 
-  const headers = [
-    'Reklam yayıcısının adı',
-    'VÖEN',
-    'İcazə',
-    'Elektron qaimənin tarixi',
-    'Elektron qaimənin nömrəsi',
-    'EQ məbləği(əsas)',
-    'EQ məbləği(ƏDV)',
-    'Ödəniş tarixi',
-    'Ödəniş məbləği(Əsas)',
-    'Ödəniş tarixi(ƏDV)',
-    'Ödəniş məbləği(ƏDV)',
-    'Qeyd',
-    'Status',
-  ];
-
-  ws.addRow(headers);
-  ws.columns = [
-    { width: 40 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 26 },
-    { width: 16 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 18 },
-    { width: 18 }, { width: 20 }, { width: 18 },
-  ];
+  ws.addRow(EXCEL_HEADERS);
+  ws.columns = EXCEL_COLUMNS;
 
   const headerRow = ws.getRow(1);
   headerRow.eachCell(cell => {
     cell.font = { bold: true, name: 'Arial', size: 10 };
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: FILL.HEADER } };
   });
 
   for (const r of exportRows) {
-    const row = ws.addRow([
-      r.reklamYayicisi,
-      r.voen,
-      r.icazeNo,
-      r.eqTarixi,
-      r.eqNomresi,
-      trunc2(r.eqMeblegEsas),
-      trunc2(r.eqMeblegEdv),
-      r.odenisTarixi,
-      trunc2(r.odenisMeblegEsas),
-      r.odenisTarixiEdv,
-      trunc2(r.odenisMeblegEdv),
-      r.qeyd,
-      r.status,
-    ]);
-    [6, 7, 9, 11].forEach(idx => {
+    const row = ws.addRow(rowToExcelValues(r));
+    NUMERIC_COL_INDEXES.forEach(idx => {
       row.getCell(idx).numFmt = '0.00';
     });
-    if (r._rowColor === 'GREEN') {
-      row.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6EFCE' } };
-      });
-    } else if (r._rowColor === 'YELLOW') {
-      row.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-      });
-    } else if (r._rowColor === 'RED') {
-      row.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8CBAD' } };
-      });
-    }
+    applyRowFill(row, r._rowColor);
   }
 
   ws.eachRow(row => {
@@ -452,3 +507,12 @@ module.exports = async (req, res) => {
 
   return res.json({ rows });
 };
+
+module.exports.STATUS = STATUS;
+module.exports.buildRows = buildRows;
+module.exports.buildExcel = buildExcel;
+module.exports.safeNum = safeNum;
+module.exports.round2 = round2;
+module.exports.displayDate = displayDate;
+module.exports.normDate = normDate;
+module.exports.cmpDate = cmpDate;
