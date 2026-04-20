@@ -3,6 +3,7 @@ const { ElektronQaime, BankHesab } = require('./_models');
 const ExcelJS = require('exceljs');
 
 const EPS = 0.01;
+const PAID_TOLERANCE = 0.02;
 const PRINCIPAL_TYPE = 'Yayım haqqı yığımı';
 const VAT_TYPE = 'Digər daxilolmalar (ƏDV)';
 
@@ -128,7 +129,7 @@ function allocateFifo(items, bankTxs, owedKey, paidKey, dateKey) {
       it[owedKey] = round2(it[owedKey] - take);
       tx.remaining = round2(tx.remaining - take);
       it[dateKey] = tx.tarix;
-      if (it[owedKey] < EPS) {
+      if (it[owedKey] <= PAID_TOLERANCE) {
         it[owedKey] = 0;
         i++;
       }
