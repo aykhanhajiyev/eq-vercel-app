@@ -461,7 +461,7 @@ module.exports = async (req, res) => {
   await connectDB();
 
   const [eqData, bankData] = await Promise.all([
-    ElektronQaime.find({}).sort({ createdAt: 1, _id: 1 }).lean(),
+    ElektronQaime.find({}).sort({ createdAt: 1, _id: 1 }).allowDiskUse(true).lean(),
     BankHesab.find({}).lean(),
   ]);
 

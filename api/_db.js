@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
+const { ElektronQaime, BankHesab } = require('./_models');
 
 let cached = global.mongoose;
-if (!cached) cached = global.mongoose = { conn: null, promise: null };
+if (!cached) cached = global.mongoose = { conn: null, promise: null, indexesPromise: null };
 
 async function connectDB() {
   if (cached.conn) return cached.conn;
@@ -12,6 +13,13 @@ async function connectDB() {
     });
   }
   cached.conn = await cached.promise;
+  if (!cached.indexesPromise) {
+    cached.indexesPromise = Promise.all([
+      ElektronQaime.createIndexes(),
+      BankHesab.createIndexes(),
+    ]);
+  }
+  await cached.indexesPromise;
   return cached.conn;
 }
 

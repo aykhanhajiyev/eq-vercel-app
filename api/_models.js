@@ -27,6 +27,9 @@ const bankHesabSchema = new mongoose.Schema({
   voen: { type: String, trim: true },
 }, { timestamps: true });
 
+elektronQaimeSchema.index({ createdAt: 1, _id: 1 });
+bankHesabSchema.index({ createdAt: 1, _id: 1 });
+
 const ElektronQaime = mongoose.models.ElektronQaime || mongoose.model('ElektronQaime', elektronQaimeSchema);
 const BankHesab = mongoose.models.BankHesab || mongoose.model('BankHesab', bankHesabSchema);
 

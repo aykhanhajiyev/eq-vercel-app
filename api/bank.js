@@ -25,6 +25,7 @@ module.exports = async (req, res) => {
     const total = await BankHesab.countDocuments(filter);
     const data = await BankHesab.find(filter)
       .sort({ createdAt: 1, _id: 1 })
+      .allowDiskUse(true)
       .skip((page - 1) * Number(limit))
       .limit(Number(limit));
     return res.json({ data, total, page: Number(page), pages: Math.ceil(total / limit) });
